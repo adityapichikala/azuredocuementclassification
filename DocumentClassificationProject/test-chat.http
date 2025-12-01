@@ -1,0 +1,15 @@
+POST http://localhost:7071/api/Chat
+Content-Type: application/json
+
+{
+    "query": "What documents are available?"
+}
+
+###
+
+POST http://localhost:7071/api/Chat
+Content-Type: application/json
+
+{
+    "query": "Summarize the content of the uploaded PDF."
+}
