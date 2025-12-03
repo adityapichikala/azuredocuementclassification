@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import axios from 'axios';
 
-const ChatInterface = () => {
+const ChatInterface = ({ selectedDocuments }) => {
   const [messages, setMessages] = useState([
     { id: 1, text: "Hello! Upload a document and ask me anything about it.", sender: 'bot' }
   ]);
@@ -28,7 +28,8 @@ const ChatInterface = () => {
 
     try {
       const response = await axios.post('http://localhost:7071/api/Chat', {
-        query: userMessage.text
+        query: userMessage.text,
+        fileNames: selectedDocuments
       });
 
       let responseText = "I couldn't find an answer.";

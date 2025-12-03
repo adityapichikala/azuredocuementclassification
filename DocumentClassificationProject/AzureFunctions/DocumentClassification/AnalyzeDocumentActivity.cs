@@ -43,7 +43,8 @@ public class AnalyzeDocumentActivity
 
                 var downloadResult = await blobClient.DownloadContentAsync();
                 content = downloadResult.Value.Content.ToString();
-                _logger.LogInformation($"✅ Downloaded text content. Length: {content.Length}");
+                var preview = content.Length > 200 ? content.Substring(0, 200) + "..." : content;
+                _logger.LogInformation($"✅ Downloaded text content. Length: {content.Length}, Preview: {preview}");
             }
             else
             {
@@ -68,7 +69,8 @@ public class AnalyzeDocumentActivity
                 
                 content = result.Content;
                 pageCount = result.Pages.Count;
-                _logger.LogInformation($"✅ Analysis complete. Pages: {pageCount}, Content Length: {content.Length}");
+                var preview = content?.Length > 200 ? content.Substring(0, 200) + "..." : content ?? "";
+                _logger.LogInformation($"✅ Analysis complete. Pages: {pageCount}, Content Length: {content?.Length ?? 0}, Preview: {preview}");
             }
 
             return new DocumentMetadata

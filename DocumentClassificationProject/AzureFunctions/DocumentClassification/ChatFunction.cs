@@ -52,7 +52,7 @@ namespace DocumentClassification
                 // 1. Generate embedding for the query
                 var queryEmbedding = await _geminiService.GenerateEmbeddingsAsync(query);
 
-                // 2. Search Azure AI Search
+            // 2. Search Azure AI Search
                 var searchEndpoint = Environment.GetEnvironmentVariable("SearchServiceEndpoint");
                 var searchKey = Environment.GetEnvironmentVariable("SearchServiceAdminKey");
                 var indexName = "documents-index";
@@ -76,6 +76,17 @@ namespace DocumentClassification
                     Size = 3, // Top 3 documents
                     Select = { "content", "fileName" }
                 };
+
+                // Apply filter if specific files are selected
+                if (data.FileNames != null && data.FileNames.Count > 0)
+                {
+                    // Escape filenames to prevent injection (basic) and handle commas
+                    var escapedFileNames = data.FileNames.Select(f => f.Replace("'", "''"));
+                    // Construct search.in filter: search.in(fileName, 'file1.pdf,file2.txt', ',')
+                    string fileList = string.Join(",", escapedFileNames);
+                    searchOptions.Filter = $"search.in(fileName, '{fileList}', ',')";
+                    _logger.LogInformation($"Applying filter: {searchOptions.Filter}");
+                }
 
                 var searchResults = await searchClient.SearchAsync<SearchDocument>(null, searchOptions);
 
@@ -110,6 +121,7 @@ namespace DocumentClassification
         public class ChatRequest
         {
             public string Query { get; set; }
+            public List<string>? FileNames { get; set; }
         }
     }
 }
