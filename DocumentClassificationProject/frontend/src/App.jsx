@@ -1,11 +1,20 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
+import Layout from './components/Layout';
 import FileUpload from './FileUpload';
 import ChatInterface from './ChatInterface';
+import PdfViewer from './components/PdfViewer';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './components/ui/Card';
+import { Button } from './components/ui/Button';
+import { FileText, Check, Eye, MessageSquare } from 'lucide-react';
+import { cn } from './lib/utils';
 
 function App() {
+  const [activeTab, setActiveTab] = useState('documents');
   const [documents, setDocuments] = useState([]);
   const [selectedDocuments, setSelectedDocuments] = useState([]);
+  const [viewingDoc, setViewingDoc] = useState(null);
+  const chatRef = useRef(null);
 
   const fetchDocuments = async () => {
     try {
@@ -20,9 +29,24 @@ function App() {
     fetchDocuments();
   }, []);
 
-  const handleUploadSuccess = (filename) => {
+  const handleUploadSuccess = async (filename) => {
     console.log(`File uploaded: ${filename}`);
-    fetchDocuments(); // Refresh list after upload
+    await fetchDocuments();
+
+    // Auto-select the uploaded document
+    if (!selectedDocuments.includes(filename)) {
+      setSelectedDocuments(prev => [...prev, filename]);
+    }
+
+    // Switch to chat and trigger summary
+    setActiveTab('chat');
+
+    // Small delay to ensure ref is ready and tab is switched
+    setTimeout(() => {
+      if (chatRef.current) {
+        chatRef.current.sendMessage(`Please provide a 3-bullet summary of the document "${filename}".`);
+      }
+    }, 500);
   };
 
   const toggleDocumentSelection = (fileName) => {
@@ -33,137 +57,151 @@ function App() {
     );
   };
 
-  return (
-    <div className="app-container">
-      <header className="app-header">
-        <h1>Document Assistant</h1>
-        <p>Upload documents and chat with them instantly.</p>
-      </header>
+  const handleViewDocument = (doc) => {
+    setViewingDoc(doc);
+    setActiveTab('chat');
+  };
 
-      <main className="app-main">
-        <div className="left-panel">
-          <section className="upload-section">
-            <h2>1. Upload Document</h2>
-            <FileUpload onUploadSuccess={handleUploadSuccess} />
-          </section>
+  const renderContent = () => {
+    switch (activeTab) {
 
-          <section className="documents-section">
-            <h2>2. Select Context</h2>
-            <div className="document-list">
-              {documents.length === 0 ? (
-                <p className="no-docs">No documents found.</p>
-              ) : (
-                documents.map(doc => (
-                  <div key={doc.documentId} className="document-item">
-                    <label>
-                      <input
-                        type="checkbox"
-                        checked={selectedDocuments.includes(doc.fileName)}
-                        onChange={() => toggleDocumentSelection(doc.fileName)}
-                      />
-                      <span className="doc-name">{doc.fileName}</span>
-                    </label>
+      case 'documents':
+        return (
+          <div className="space-y-6">
+            <div>
+              <h2 className="text-3xl font-bold tracking-tight">Documents</h2>
+              <p className="text-muted-foreground">Manage your knowledge base.</p>
+            </div>
+
+            <div className="grid gap-6 md:grid-cols-2">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Upload New Document</CardTitle>
+                  <CardDescription>Supported formats: PDF, JPEG, PNG, TIFF, BMP</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <FileUpload onUploadSuccess={handleUploadSuccess} />
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>Available Documents</CardTitle>
+                  <CardDescription>Select documents to include in chat context</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-2 max-h-[400px] overflow-y-auto pr-2">
+                    {documents.length === 0 ? (
+                      <div className="flex flex-col items-center justify-center py-8 text-center text-muted-foreground">
+                        <FileText className="h-12 w-12 mb-2 opacity-20" />
+                        <p>No documents found</p>
+                      </div>
+                    ) : (
+                      documents.map(doc => (
+                        <div
+                          key={doc.documentId}
+                          className={cn(
+                            "flex items-center justify-between p-3 rounded-lg border transition-all hover:bg-accent group",
+                            selectedDocuments.includes(doc.fileName)
+                              ? "border-primary bg-primary/5"
+                              : "border-border"
+                          )}
+                        >
+                          <div
+                            className="flex items-center space-x-3 overflow-hidden flex-1 cursor-pointer"
+                            onClick={() => toggleDocumentSelection(doc.fileName)}
+                          >
+                            <div className={cn(
+                              "p-2 rounded-full transition-colors",
+                              selectedDocuments.includes(doc.fileName) ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"
+                            )}>
+                              <FileText className="h-4 w-4" />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <p className="text-sm font-medium break-all">{doc.fileName}</p>
+                              <p className="text-xs text-muted-foreground">
+                                {doc.timestamp ? new Date(doc.timestamp).toLocaleDateString() : 'Unknown date'}
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center space-x-2">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleViewDocument(doc);
+                              }}
+                              title="View Document"
+                            >
+                              <Eye className="h-4 w-4" />
+                            </Button>
+                            {selectedDocuments.includes(doc.fileName) && (
+                              <Check className="h-4 w-4 text-primary" />
+                            )}
+                          </div>
+                        </div>
+                      ))
+                    )}
                   </div>
-                ))
+                </CardContent>
+              </Card>
+            </div>
+          </div>
+        );
+
+      case 'chat':
+        return (
+          <div className="h-[calc(100vh-8rem)] flex flex-col">
+            <div className="mb-4 flex justify-between items-center">
+              <div>
+                <h2 className="text-3xl font-bold tracking-tight">Chat</h2>
+                <p className="text-muted-foreground">
+                  {selectedDocuments.length > 0
+                    ? `Chatting with ${selectedDocuments.length} selected document(s)`
+                    : "Select documents to start chatting"}
+                </p>
+              </div>
+              {viewingDoc && (
+                <Button variant="outline" size="sm" onClick={() => setViewingDoc(null)}>
+                  Close Viewer
+                </Button>
               )}
             </div>
-          </section>
-        </div>
 
-        <section className="chat-section">
-          <h2>3. Chat</h2>
-          <ChatInterface selectedDocuments={selectedDocuments} />
-        </section>
-      </main>
+            <div className="flex-1 min-h-0 flex gap-6">
+              {/* Split Screen: PDF Viewer */}
+              {viewingDoc && (
+                <div className="w-1/2 min-w-[300px] h-full animate-in slide-in-from-left duration-300">
+                  <PdfViewer url={viewingDoc.blobUrl} fileName={viewingDoc.fileName} />
+                </div>
+              )}
 
-      <style>{`
-        .app-container {
-          max-width: 1200px;
-          margin: 0 auto;
-          padding: 2rem;
-          min-height: 100vh;
-        }
-        .app-header {
-          text-align: center;
-          margin-bottom: 3rem;
-        }
-        .app-header h1 {
-          color: var(--primary-color);
-          font-size: 2.5rem;
-          margin-bottom: 0.5rem;
-        }
-        .app-header p {
-          color: var(--text-secondary);
-          font-size: 1.2rem;
-        }
-        .app-main {
-          display: grid;
-          grid-template-columns: 350px 1fr;
-          gap: 2rem;
-          align-items: start;
-        }
-        .left-panel {
-          display: flex;
-          flex-direction: column;
-          gap: 2rem;
-        }
-        h2 {
-          font-size: 1.2rem;
-          color: var(--text-primary);
-          margin-bottom: 1rem;
-          display: flex;
-          align-items: center;
-        }
-        h2::before {
-          content: '';
-          display: inline-block;
-          width: 4px;
-          height: 1.2rem;
-          background-color: var(--primary-color);
-          margin-right: 0.5rem;
-          border-radius: 2px;
-        }
-        .document-list {
-          background: var(--surface-color);
-          border: 1px solid var(--border-color);
-          border-radius: 8px;
-          padding: 1rem;
-          max-height: 400px;
-          overflow-y: auto;
-        }
-        .document-item {
-          margin-bottom: 0.5rem;
-        }
-        .document-item label {
-          display: flex;
-          align-items: center;
-          cursor: pointer;
-          padding: 0.5rem;
-          border-radius: 4px;
-          transition: background 0.2s;
-        }
-        .document-item label:hover {
-          background: #f3f2f1;
-        }
-        .document-item input {
-          margin-right: 0.75rem;
-        }
-        .doc-name {
-          font-size: 0.9rem;
-          word-break: break-all;
-        }
-        .no-docs {
-          color: var(--text-secondary);
-          font-style: italic;
-          text-align: center;
-        }
-        @media (max-width: 768px) {
-          .app-main {
-            grid-template-columns: 1fr;
-          }
-        }
-      `}</style>
-    </div>
+              {/* Chat Interface */}
+              <div className={cn(
+                "h-full transition-all duration-300",
+                viewingDoc ? "w-1/2" : "w-full max-w-3xl mx-auto"
+              )}>
+                <ChatInterface
+                  ref={chatRef}
+                  selectedDocuments={selectedDocuments}
+                />
+              </div>
+            </div>
+          </div>
+        );
+
+      default:
+        return null;
+    }
+  };
+
+  return (
+    <Layout activeTab={activeTab} onTabChange={setActiveTab}>
+      {renderContent()}
+    </Layout>
   );
 }
 

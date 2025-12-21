@@ -77,7 +77,7 @@ namespace DocumentClassification.Services
         {
             if (string.IsNullOrEmpty(_apiKey)) throw new InvalidOperationException("GeminiApiKey is not configured.");
 
-            var url = $"https://generativelanguage.googleapis.com/v1beta/models/gemini-pro-latest:generateContent?key={_apiKey}";
+            var url = $"https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key={_apiKey}";
 
             var requestBody = new
             {

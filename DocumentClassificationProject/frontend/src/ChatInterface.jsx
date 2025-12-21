@@ -1,7 +1,10 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useImperativeHandle, forwardRef } from 'react';
 import axios from 'axios';
+import { Send, Bot, User, AlertCircle } from 'lucide-react';
+import { Button } from './components/ui/Button';
+import { cn } from './lib/utils';
 
-const ChatInterface = ({ selectedDocuments }) => {
+const ChatInterface = forwardRef(({ selectedDocuments }, ref) => {
   const [messages, setMessages] = useState([
     { id: 1, text: "Hello! Upload a document and ask me anything about it.", sender: 'bot' }
   ]);
@@ -17,13 +20,11 @@ const ChatInterface = ({ selectedDocuments }) => {
     scrollToBottom();
   }, [messages]);
 
-  const handleSend = async (e) => {
-    e.preventDefault();
-    if (!input.trim()) return;
+  const sendMessage = async (text) => {
+    if (!text.trim()) return;
 
-    const userMessage = { id: Date.now(), text: input, sender: 'user' };
+    const userMessage = { id: Date.now(), text: text, sender: 'user' };
     setMessages(prev => [...prev, userMessage]);
-    setInput('');
     setLoading(true);
 
     try {
@@ -52,8 +53,6 @@ const ChatInterface = ({ selectedDocuments }) => {
       let errorText = "Sorry, I encountered an error processing your request.";
 
       if (error.response && error.response.data) {
-        // Try to get the error message from the backend response
-        // The backend returns a string in some cases or JSON
         if (typeof error.response.data === 'string') {
           errorText = error.response.data;
         } else if (error.response.data.message) {
@@ -73,130 +72,85 @@ const ChatInterface = ({ selectedDocuments }) => {
     }
   };
 
+  useImperativeHandle(ref, () => ({
+    sendMessage
+  }));
+
+  const handleSend = (e) => {
+    e.preventDefault();
+    sendMessage(input);
+    setInput('');
+  };
+
   return (
-    <div className="chat-container">
-      <div className="messages-area">
+    <div className="flex flex-col h-full bg-card rounded-lg border shadow-sm overflow-hidden">
+      <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {messages.map((msg) => (
-          <div key={msg.id} className={`message ${msg.sender} ${msg.isError ? 'error' : ''}`}>
-            <div className="message-content">{msg.text}</div>
+          <div
+            key={msg.id}
+            className={cn(
+              "flex w-full",
+              msg.sender === 'user' ? "justify-end" : "justify-start"
+            )}
+          >
+            <div className={cn(
+              "flex max-w-[80%] rounded-lg p-3 gap-3",
+              msg.sender === 'user'
+                ? "bg-primary text-primary-foreground"
+                : msg.isError
+                  ? "bg-destructive/10 text-destructive border border-destructive/20"
+                  : "bg-muted text-foreground"
+            )}>
+              <div className="flex-shrink-0 mt-1">
+                {msg.sender === 'user' ? (
+                  <User className="h-4 w-4 opacity-70" />
+                ) : msg.isError ? (
+                  <AlertCircle className="h-4 w-4" />
+                ) : (
+                  <Bot className="h-4 w-4 opacity-70" />
+                )}
+              </div>
+              <div className="text-sm leading-relaxed whitespace-pre-wrap">
+                {msg.text}
+              </div>
+            </div>
           </div>
         ))}
         {loading && (
-          <div className="message bot loading">
-            <div className="typing-indicator">
-              <span></span><span></span><span></span>
+          <div className="flex justify-start w-full">
+            <div className="flex max-w-[80%] rounded-lg p-4 bg-muted text-foreground gap-3 items-center">
+              <Bot className="h-4 w-4 opacity-70" />
+              <div className="flex space-x-1">
+                <div className="w-2 h-2 bg-current rounded-full animate-bounce [animation-delay:-0.3s]"></div>
+                <div className="w-2 h-2 bg-current rounded-full animate-bounce [animation-delay:-0.15s]"></div>
+                <div className="w-2 h-2 bg-current rounded-full animate-bounce"></div>
+              </div>
             </div>
           </div>
         )}
         <div ref={messagesEndRef} />
       </div>
-      <form onSubmit={handleSend} className="input-area">
-        <input
-          type="text"
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          placeholder="Type your question..."
-          disabled={loading}
-        />
-        <button type="submit" disabled={loading || !input.trim()}>Send</button>
-      </form>
 
-      <style>{`
-        .chat-container {
-          display: flex;
-          flex-direction: column;
-          height: 500px;
-          border: 1px solid var(--border-color);
-          border-radius: 8px;
-          background-color: var(--surface-color);
-          overflow: hidden;
-          box-shadow: var(--shadow-sm);
-        }
-        .messages-area {
-          flex: 1;
-          padding: 1rem;
-          overflow-y: auto;
-          display: flex;
-          flex-direction: column;
-          gap: 0.5rem;
-        }
-        .message {
-          max-width: 80%;
-          padding: 0.75rem 1rem;
-          border-radius: 1rem;
-          line-height: 1.4;
-        }
-        .message.user {
-          align-self: flex-end;
-          background-color: var(--primary-color);
-          color: white;
-          border-bottom-right-radius: 0.25rem;
-        }
-        .message.bot {
-          align-self: flex-start;
-          background-color: #f3f2f1;
-          color: var(--text-primary);
-          border-bottom-left-radius: 0.25rem;
-        }
-        .message.error {
-          background-color: #fde7e9;
-          color: var(--error-color);
-        }
-        .input-area {
-          display: flex;
-          padding: 1rem;
-          border-top: 1px solid var(--border-color);
-          background-color: var(--surface-color);
-        }
-        .input-area input {
-          flex: 1;
-          padding: 0.75rem;
-          border: 1px solid var(--border-color);
-          border-radius: 4px;
-          margin-right: 0.5rem;
-          font-size: 1rem;
-          outline: none;
-        }
-        .input-area input:focus {
-          border-color: var(--primary-color);
-        }
-        .input-area button {
-          padding: 0 1.5rem;
-          background-color: var(--primary-color);
-          color: white;
-          border: none;
-          border-radius: 4px;
-          font-weight: 600;
-          transition: background-color 0.2s;
-        }
-        .input-area button:hover:not(:disabled) {
-          background-color: var(--primary-hover);
-        }
-        .input-area button:disabled {
-          background-color: #c8c6c4;
-          cursor: not-allowed;
-        }
-        .typing-indicator {
-          display: flex;
-          gap: 4px;
-        }
-        .typing-indicator span {
-          width: 8px;
-          height: 8px;
-          background-color: #8a8886;
-          border-radius: 50%;
-          animation: bounce 1.4s infinite ease-in-out both;
-        }
-        .typing-indicator span:nth-child(1) { animation-delay: -0.32s; }
-        .typing-indicator span:nth-child(2) { animation-delay: -0.16s; }
-        
-        @keyframes bounce {
-          0%, 80%, 100% { transform: scale(0); }
-          40% { transform: scale(1); }
-        }
-      `}</style>
+      <div className="p-4 border-t bg-card/50 backdrop-blur-sm">
+        <form onSubmit={handleSend} className="flex gap-2">
+          <input
+            type="text"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            placeholder="Type your question..."
+            disabled={loading}
+            className="flex-1 min-w-0 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+          />
+          <Button type="submit" disabled={loading || !input.trim()}>
+            <Send className="h-4 w-4 mr-2" />
+            Send
+          </Button>
+        </form>
+      </div>
     </div>
   );
-};
+});
+
+ChatInterface.displayName = "ChatInterface";
 
 export default ChatInterface;

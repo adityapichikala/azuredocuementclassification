@@ -39,7 +39,7 @@ namespace DocumentClassification
                 }
 
                 var container = _cosmosClient.GetContainer("DocumentMetadata", "Documents");
-                var query = new QueryDefinition("SELECT c.fileName, c.documentId, c.timestamp FROM c");
+                var query = new QueryDefinition("SELECT c.fileName, c.documentId, c.timestamp, c.blobUrl FROM c");
                 
                 var documents = new List<DocumentSummary>();
                 using var iterator = container.GetItemQueryIterator<DocumentSummary>(query);
@@ -73,6 +73,9 @@ namespace DocumentClassification
 
             [JsonPropertyName("timestamp")]
             public DateTime? UploadDate { get; set; }
+
+            [JsonPropertyName("blobUrl")]
+            public string BlobUrl { get; set; } = string.Empty;
         }
     }
 }

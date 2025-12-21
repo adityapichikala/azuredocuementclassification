@@ -1,4 +1,4 @@
-# Complete Guide: Building an Azure Document Classification & RAG System
+`# Complete Guide: Building an Azure Document Classification & RAG System
 
 This guide walks you through building a complete Retrieval-Augmented Generation (RAG) system for document processing and AI-powered chat using Azure services and Google Gemini AI.
 

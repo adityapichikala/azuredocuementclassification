@@ -39,7 +39,7 @@ namespace DocumentClassification
             // Note: In a real scenario, we might want to get this from binding data or configuration
             // For now, we construct it using the known storage account format
             string accountName = "stdocclass1764130250"; // We could also parse this from connection string
-            string blobUrl = $"https://{accountName}.blob.core.windows.net/documents/{name}";
+            string blobUrl = $"https://{accountName}.blob.core.windows.net/documents/{Uri.EscapeDataString(name)}";
 
             var documentInfo = new DocumentInfo
             {

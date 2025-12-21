@@ -52,7 +52,9 @@ public class StoreMetadataActivity
                 StartPage = document.StartPage,
                 EndPage = document.EndPage,
                 UploadDate = DateTime.UtcNow,
-                Content = document.Content
+                Content = document.Content,
+                FileName = document.FileName,
+                BlobUrl = document.BlobUrl
             };
 
             await container.CreateItemAsync(metadata, new PartitionKey(document.DocumentId));

@@ -1,6 +1,8 @@
 import React, { useCallback, useState } from 'react';
 import { useDropzone } from 'react-dropzone';
 import axios from 'axios';
+import { Upload, File, CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
+import { cn } from './lib/utils';
 
 const FileUpload = ({ onUploadSuccess }) => {
     const [uploading, setUploading] = useState(false);
@@ -16,7 +18,6 @@ const FileUpload = ({ onUploadSuccess }) => {
         setError(null);
 
         try {
-            // Send file as binary body, pass filename in query param
             const response = await axios.post(`http://localhost:7071/api/upload?filename=${encodeURIComponent(file.name)}`, file, {
                 headers: {
                     'Content-Type': file.type,
@@ -47,56 +48,49 @@ const FileUpload = ({ onUploadSuccess }) => {
     });
 
     return (
-        <div className="upload-container">
-            <div {...getRootProps()} className={`dropzone ${isDragActive ? 'active' : ''}`}>
+        <div className="w-full">
+            <div
+                {...getRootProps()}
+                className={cn(
+                    "border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors duration-200 ease-in-out flex flex-col items-center justify-center min-h-[200px]",
+                    isDragActive
+                        ? "border-primary bg-primary/5"
+                        : "border-muted-foreground/25 hover:border-primary/50 hover:bg-accent"
+                )}
+            >
                 <input {...getInputProps()} />
                 {uploading ? (
-                    <p>Uploading...</p>
+                    <div className="flex flex-col items-center space-y-2 text-muted-foreground">
+                        <Loader2 className="h-10 w-10 animate-spin text-primary" />
+                        <p>Uploading...</p>
+                    </div>
                 ) : isDragActive ? (
-                    <p>Drop the file here ...</p>
+                    <div className="flex flex-col items-center space-y-2 text-primary">
+                        <Upload className="h-10 w-10" />
+                        <p className="font-medium">Drop the file here ...</p>
+                    </div>
                 ) : (
-                    <div>
-                        <p>Drag 'n' drop a file here, or click to select a file</p>
-                        <p className="supported-types">Supported: PDF, JPEG, PNG, TIFF, BMP</p>
+                    <div className="flex flex-col items-center space-y-2 text-muted-foreground">
+                        <Upload className="h-10 w-10 mb-2" />
+                        <p className="font-medium text-foreground">Drag 'n' drop a file here, or click to select</p>
+                        <p className="text-xs">Supported: PDF, JPEG, PNG, TIFF, BMP</p>
                     </div>
                 )}
             </div>
-            {message && <div className="success-message">{message}</div>}
-            {error && <div className="error-message">{error}</div>}
 
-            <style>{`
-        .upload-container {
-          margin-bottom: 2rem;
-        }
-        .dropzone {
-          border: 2px dashed var(--border-color);
-          border-radius: 8px;
-          padding: 2rem;
-          text-align: center;
-          background-color: var(--surface-color);
-          cursor: pointer;
-          transition: border-color 0.2s ease;
-        }
-        .dropzone:hover, .dropzone.active {
-          border-color: var(--primary-color);
-          background-color: rgba(0, 120, 212, 0.05);
-        }
-        .supported-types {
-          font-size: 0.85rem;
-          color: var(--text-secondary);
-          margin-top: 0.5rem;
-        }
-        .success-message {
-          color: var(--success-color);
-          margin-top: 0.5rem;
-          font-size: 0.9rem;
-        }
-        .error-message {
-          color: var(--error-color);
-          margin-top: 0.5rem;
-          font-size: 0.9rem;
-        }
-      `}</style>
+            {message && (
+                <div className="mt-4 p-3 rounded-md bg-green-500/10 text-green-600 flex items-center text-sm">
+                    <CheckCircle className="h-4 w-4 mr-2" />
+                    {message}
+                </div>
+            )}
+
+            {error && (
+                <div className="mt-4 p-3 rounded-md bg-destructive/10 text-destructive flex items-center text-sm">
+                    <AlertCircle className="h-4 w-4 mr-2" />
+                    {error}
+                </div>
+            )}
         </div>
     );
 };
