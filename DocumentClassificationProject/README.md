@@ -8,9 +8,11 @@ A serverless document processing and RAG (Retrieval-Augmented Generation) system
 - **🔍 Vector Search**: Semantic search capabilities powered by Azure AI Search with vector embeddings
 - **💬 AI Chat Interface**: Interactive chat with your documents using Google Gemini API
 - **📊 Metadata Storage**: Document metadata stored in Azure Cosmos DB
+- **📈 Dashboard KPIs**: Real-time tracking of "Total Documents", "Invoices", and "Others"
 - **🎯 Selective Chat**: Filter conversations by specific uploaded documents
 - **🚀 Serverless Architecture**: Scalable Azure Durable Functions orchestration
 - **⚡ Real-time Frontend**: Modern React application with Vite
+- **🖼️ Image Support**: Upload and classify invoices from photos (JPEG, PNG, etc.)
 
 ## 🏗️ Architecture
 
@@ -374,7 +376,7 @@ dotnet build
 
 - **Backend**: .NET 8, Azure Durable Functions
 - **Frontend**: React 18, Vite
-- **AI/ML**: Google Gemini API (embeddings & chat)
+- **AI/ML**: Google Gemini API (Gemini 1.5 Flash for chat, Text Embedding 004)
 - **Search**: Azure AI Search (vector search)
 - **Storage**: Azure Blob Storage, Cosmos DB
 - **Document Processing**: Azure Document Intelligence
@@ -382,7 +384,7 @@ dotnet build
 
 ## 🗺️ Roadmap
 
-- [ ] Add support for more document formats
+- [x] Add support for more document formats (Images/Photos)
 - [ ] Implement user authentication
 - [ ] Add document versioning
 - [ ] Create document comparison feature
