@@ -38,7 +38,7 @@ This is a **RAG (Retrieval-Augmented Generation)** pipeline that:
 ### The Flow
 
 ```
-User Upload → Blob Storage → Document Processing → Metadata Storage → Embedding Generation → Vector Index → Chat Interface
+User Upload → Blob Storage → Document Processing → Embedding Generation & Indexing → Metadata Storage → Chat Interface
 ```
 
 ### Components Explained
@@ -52,9 +52,8 @@ User Upload → Blob Storage → Document Processing → Metadata Storage → Em
 - **BlobTriggerFunction**: Triggers when a file is uploaded
 - **DocumentOrchestrator**: Coordinates the entire workflow
 - **AnalyzeDocumentActivity**: Extracts text from documents
+- **IndexDocumentActivity**: Generates embeddings and stores in Azure AI Search
 - **StoreMetadataActivity**: Saves document info to Cosmos DB
-- **CreateEmbeddingsActivity**: Generates vector embeddings
-- **IndexDocumentActivity**: Stores in Azure AI Search
 - **ChatFunction**: Handles user queries and generates answers
 
 #### **Azure Services**
@@ -332,11 +331,14 @@ namespace DocumentClassification.Models
         [JsonProperty("id")]
         public string Id { get; set; }
         
+        public string DocumentId { get; set; }
         public string FileName { get; set; }
         public string BlobUrl { get; set; }
         public string Content { get; set; }
-        public DateTime ProcessedDate { get; set; }
-        public string Status { get; set; }
+        public string DocumentType { get; set; }
+        public int StartPage { get; set; }
+        public int EndPage { get; set; }
+        public DateTime UploadDate { get; set; }
     }
 }
 ```
@@ -347,11 +349,12 @@ Create `Services/GeminiService.cs`:
 
 ```csharp
 using System;
-using System.Collections.Generic;
 using System.Net.Http;
-using System.Net.Http.Json;
+using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
 
 namespace DocumentClassification.Services
 {
@@ -359,18 +362,20 @@ namespace DocumentClassification.Services
     {
         private readonly HttpClient _httpClient;
         private readonly string _apiKey;
-        
-        public GeminiService(IHttpClientFactory httpClientFactory)
+        private readonly ILogger<GeminiService> _logger;
+
+        public GeminiService(IConfiguration configuration, ILogger<GeminiService> logger, IHttpClientFactory httpClientFactory)
         {
+            _apiKey = configuration["GeminiApiKey"];
             _httpClient = httpClientFactory.CreateClient();
-            _apiKey = Environment.GetEnvironmentVariable("GeminiApiKey");
+            _logger = logger;
         }
 
         public async Task<float[]> GenerateEmbeddingsAsync(string text)
         {
             var url = $"https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent?key={_apiKey}";
             
-            var request = new
+            var requestBody = new
             {
                 model = "models/text-embedding-004",
                 content = new
@@ -379,48 +384,45 @@ namespace DocumentClassification.Services
                 }
             };
 
-            var response = await _httpClient.PostAsJsonAsync(url, request);
+            var content = new StringContent(JsonSerializer.Serialize(requestBody), Encoding.UTF8, "application/json");
+            var response = await _httpClient.PostAsync(url, content);
             response.EnsureSuccessStatusCode();
             
-            var result = await response.Content.ReadFromJsonAsync<JsonDocument>();
-            var embeddingArray = result.RootElement
-                .GetProperty("embedding")
-                .GetProperty("values");
-
-            var embeddings = new List<float>();
-            foreach (var element in embeddingArray.EnumerateArray())
+            var responseString = await response.Content.ReadAsStringAsync();
+            using var doc = JsonDocument.Parse(responseString);
+            
+            var values = doc.RootElement.GetProperty("embedding").GetProperty("values");
+            var embeddings = new float[values.GetArrayLength()];
+            int i = 0;
+            foreach (var value in values.EnumerateArray())
             {
-                embeddings.Add(element.GetSingle());
+                embeddings[i++] = value.GetSingle();
             }
-
-            return embeddings.ToArray();
+            return embeddings;
         }
 
         public async Task<string> GenerateContentAsync(string prompt)
         {
-            var url = $"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={_apiKey}";
+            var url = $"https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key={_apiKey}";
             
-            var request = new
+            var requestBody = new
             {
                 contents = new[]
                 {
-                    new
-                    {
-                        parts = new[] { new { text = prompt } }
-                    }
+                    new { parts = new[] { new { text = prompt } } }
                 }
             };
 
-            var response = await _httpClient.PostAsJsonAsync(url, request);
+            var content = new StringContent(JsonSerializer.Serialize(requestBody), Encoding.UTF8, "application/json");
+            var response = await _httpClient.PostAsync(url, content);
             response.EnsureSuccessStatusCode();
             
-            var result = await response.Content.ReadFromJsonAsync<JsonDocument>();
-            return result.RootElement
-                .GetProperty("candidates")[0]
-                .GetProperty("content")
-                .GetProperty("parts")[0]
-                .GetProperty("text")
-                .GetString();
+            var responseString = await response.Content.ReadAsStringAsync();
+            using var doc = JsonDocument.Parse(responseString);
+            
+            return doc.RootElement.GetProperty("candidates")[0]
+                .GetProperty("content").GetProperty("parts")[0]
+                .GetProperty("text").GetString();
         }
     }
 }
@@ -433,11 +435,11 @@ The key functions to create:
 1. **BlobTriggerFunction.cs** - Triggers on file upload
 2. **DocumentOrchestrator.cs** - Orchestrates the workflow
 3. **AnalyzeDocumentActivity.cs** - Extracts text
-4. **StoreMetadataActivity.cs** - Saves to Cosmos DB
-5. **CreateEmbeddingsActivity.cs** - Generates embeddings
-6. **IndexDocumentActivity.cs** - Stores in AI Search
-7. **ChatFunction.cs** - Handles chat queries
-8. **GetDocumentsFunction.cs** - Lists uploaded documents
+4. **IndexDocumentActivity.cs** - Generates embeddings and stores in AI Search
+5. **StoreMetadataActivity.cs** - Saves to Cosmos DB
+6. **ChatFunction.cs** - Handles chat queries
+7. **GetDocumentsFunction.cs** - Lists uploaded documents
+8. **DeleteDocumentFunction.cs** - Deletes documents from all stores
 
 (See your existing code for full implementations)
 
@@ -536,10 +538,11 @@ npm run dev
 1. User uploads file → Blob Storage
 2. Blob Trigger fires → Starts Orchestrator
 3. Orchestrator calls activities in sequence:
-   a. AnalyzeDocument → Extract text
-   b. StoreMetadata → Save to Cosmos DB
-   c. CreateEmbeddings → Generate vectors
-   d. IndexDocument → Store in AI Search
+   a. AnalyzeDocument:
+      - **Invoice Extraction**: Uses Azure `prebuilt-invoice` model to extract key fields (Vendor, Date, Total).
+      - **Strict Scope**: Only processes invoices. Non-invoice documents are marked as "Unknown".
+   b. IndexDocument → Generate vectors & Store in AI Search
+   c. StoreMetadata → Save to Cosmos DB
 ```
 
 ### Chat Query Flow

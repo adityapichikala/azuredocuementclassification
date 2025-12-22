@@ -29,9 +29,16 @@ namespace DocumentClassification
             var blobServiceClient = new BlobServiceClient(connectionString);
             var containerClient = blobServiceClient.GetBlobContainerClient(containerName);
 
+            string filename = req.Query["filename"];
+
             int count = 0;
             await foreach (var blobItem in containerClient.GetBlobsAsync())
             {
+                if (!string.IsNullOrEmpty(filename) && !blobItem.Name.Equals(filename, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
                 string blobUrl = containerClient.GetBlobClient(blobItem.Name).Uri.ToString();
                 
                 var documentInfo = new DocumentInfo

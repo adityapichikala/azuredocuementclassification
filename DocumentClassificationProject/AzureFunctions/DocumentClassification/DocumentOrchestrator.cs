@@ -35,9 +35,11 @@ public class DocumentOrchestrator
         }
 
         // 2. Index Document (Generate Embeddings & Upload to Search)
+        if (!context.IsReplaying) _logger.LogInformation($"🔍 Calling IndexDocumentActivity for {metadata.DocumentId}...");
         await context.CallActivityAsync(
             nameof(IndexDocumentActivity),
             metadata);
+        if (!context.IsReplaying) _logger.LogInformation($"✅ IndexDocumentActivity completed for {metadata.DocumentId}");
 
         // 3. Store Metadata (Cosmos DB)
         var embeddedDoc = new EmbeddedDocument
@@ -51,6 +53,7 @@ public class DocumentOrchestrator
             UploadDate = metadata.UploadDate
         };
 
+        if (!context.IsReplaying) _logger.LogInformation($"💾 Calling StoreMetadataActivity for {metadata.DocumentId}...");
         await context.CallActivityAsync(
             nameof(StoreMetadataActivity),
             embeddedDoc);

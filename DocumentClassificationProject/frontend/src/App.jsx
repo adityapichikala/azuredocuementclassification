@@ -3,17 +3,15 @@ import axios from 'axios';
 import Layout from './components/Layout';
 import FileUpload from './FileUpload';
 import ChatInterface from './ChatInterface';
-import PdfViewer from './components/PdfViewer';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './components/ui/Card';
 import { Button } from './components/ui/Button';
-import { FileText, Check, Eye, MessageSquare } from 'lucide-react';
+import { FileText, Check, MessageSquare, PieChart, BarChart, Trash2 } from 'lucide-react';
 import { cn } from './lib/utils';
 
 function App() {
   const [activeTab, setActiveTab] = useState('documents');
   const [documents, setDocuments] = useState([]);
   const [selectedDocuments, setSelectedDocuments] = useState([]);
-  const [viewingDoc, setViewingDoc] = useState(null);
   const chatRef = useRef(null);
 
   const fetchDocuments = async () => {
@@ -57,13 +55,127 @@ function App() {
     );
   };
 
-  const handleViewDocument = (doc) => {
-    setViewingDoc(doc);
-    setActiveTab('chat');
+  const handleDelete = async (doc) => {
+    if (!confirm(`Are you sure you want to delete "${doc.fileName}"? This cannot be undone.`)) return;
+
+    try {
+      await axios.delete('http://localhost:7071/api/DeleteDocument', {
+        data: {
+          documentId: doc.documentId,
+          blobUrl: doc.blobUrl
+        }
+      });
+      // Remove from local state
+      setDocuments(documents.filter(d => d.documentId !== doc.documentId));
+      setSelectedDocuments(selectedDocuments.filter(f => f !== doc.fileName));
+    } catch (error) {
+      console.error('Error deleting document:', error);
+      alert('Failed to delete document');
+    }
+  };
+
+  // Calculate stats for dashboard
+  const getDocumentStats = () => {
+    const stats = documents.reduce((acc, doc) => {
+      const type = doc.documentType || 'Unknown';
+      acc[type] = (acc[type] || 0) + 1;
+      return acc;
+    }, {});
+    return stats;
   };
 
   const renderContent = () => {
     switch (activeTab) {
+
+      case 'dashboard':
+        const stats = getDocumentStats();
+        const totalDocs = documents.length;
+
+        return (
+          <div className="space-y-6">
+            <div>
+              <h2 className="text-3xl font-bold tracking-tight">Dashboard</h2>
+              <p className="text-muted-foreground">Overview of your document classification.</p>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Total Documents</CardTitle>
+                  <FileText className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{totalDocs}</div>
+                </CardContent>
+              </Card>
+
+
+
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Invoices</CardTitle>
+                  <PieChart className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{stats['invoice'] || 0}</div>
+                  <p className="text-xs text-muted-foreground">
+                    {totalDocs > 0 ? (((stats['invoice'] || 0) / totalDocs) * 100).toFixed(0) : 0}% of total
+                  </p>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Others</CardTitle>
+                  <FileText className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">
+                    {totalDocs - (stats['invoice'] || 0)}
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Unclassified or other types
+                  </p>
+                </CardContent>
+              </Card>
+            </div>
+
+            <Card className="col-span-4">
+              <CardHeader>
+                <CardTitle>Recent Activity</CardTitle>
+                <CardDescription>Latest processed documents</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  {documents.slice(0, 5).map(doc => (
+                    <div key={doc.documentId} className="flex items-center">
+                      <div className="ml-4 space-y-1">
+                        <p className="text-sm font-medium leading-none">{doc.fileName}</p>
+                        <p className="text-sm text-muted-foreground">
+                          Classified as <span className="font-semibold text-primary">{doc.documentType || 'Unknown'}</span>
+                        </p>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <span className={`px-2 py-1 text-xs rounded-full ${doc.documentType === 'invoice' ? 'bg-green-100 text-green-800' :
+                          'bg-gray-100 text-gray-800'
+                          }`}>
+                          {doc.documentType || 'Unknown'}
+                        </span>
+                        <button
+                          onClick={() => handleDelete(doc)}
+                          className="p-2 text-red-500 hover:bg-red-50 rounded-full transition-colors"
+                          title="Delete Document"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        );
 
       case 'documents':
         return (
@@ -118,7 +230,12 @@ function App() {
                               <FileText className="h-4 w-4" />
                             </div>
                             <div className="min-w-0 flex-1">
-                              <p className="text-sm font-medium break-all">{doc.fileName}</p>
+                              <div className="flex items-center gap-2">
+                                <p className="text-sm font-medium break-all">{doc.fileName}</p>
+                                <span className="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 border-transparent bg-secondary text-secondary-foreground hover:bg-secondary/80">
+                                  {doc.documentType || 'Unknown'}
+                                </span>
+                              </div>
                               <p className="text-xs text-muted-foreground">
                                 {doc.timestamp ? new Date(doc.timestamp).toLocaleDateString() : 'Unknown date'}
                               </p>
@@ -126,21 +243,19 @@ function App() {
                           </div>
 
                           <div className="flex items-center space-x-2">
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleViewDocument(doc);
-                              }}
-                              title="View Document"
-                            >
-                              <Eye className="h-4 w-4" />
-                            </Button>
                             {selectedDocuments.includes(doc.fileName) && (
                               <Check className="h-4 w-4 text-primary" />
                             )}
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleDelete(doc);
+                              }}
+                              className="p-2 text-red-500 hover:bg-red-50 rounded-full transition-colors opacity-0 group-hover:opacity-100"
+                              title="Delete Document"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
                           </div>
                         </div>
                       ))
@@ -164,26 +279,11 @@ function App() {
                     : "Select documents to start chatting"}
                 </p>
               </div>
-              {viewingDoc && (
-                <Button variant="outline" size="sm" onClick={() => setViewingDoc(null)}>
-                  Close Viewer
-                </Button>
-              )}
             </div>
 
             <div className="flex-1 min-h-0 flex gap-6">
-              {/* Split Screen: PDF Viewer */}
-              {viewingDoc && (
-                <div className="w-1/2 min-w-[300px] h-full animate-in slide-in-from-left duration-300">
-                  <PdfViewer url={viewingDoc.blobUrl} fileName={viewingDoc.fileName} />
-                </div>
-              )}
-
               {/* Chat Interface */}
-              <div className={cn(
-                "h-full transition-all duration-300",
-                viewingDoc ? "w-1/2" : "w-full max-w-3xl mx-auto"
-              )}>
+              <div className="w-full max-w-3xl mx-auto h-full">
                 <ChatInterface
                   ref={chatRef}
                   selectedDocuments={selectedDocuments}

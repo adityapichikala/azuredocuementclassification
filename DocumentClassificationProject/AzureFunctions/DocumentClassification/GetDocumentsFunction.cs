@@ -5,6 +5,8 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Azure.Cosmos;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Azure.Storage.Blobs;
+using Azure.Storage.Sas;
 
 namespace DocumentClassification
 {
@@ -12,6 +14,7 @@ namespace DocumentClassification
     {
         private readonly ILogger _logger;
         private static CosmosClient? _cosmosClient;
+        private static BlobServiceClient? _blobServiceClient;
 
         public GetDocumentsFunction(ILoggerFactory loggerFactory)
         {
@@ -24,10 +27,12 @@ namespace DocumentClassification
             _logger.LogInformation("Fetching document list.");
 
             var connectionString = Environment.GetEnvironmentVariable("CosmosDBConnection");
-            if (string.IsNullOrEmpty(connectionString))
+            var storageConnectionString = Environment.GetEnvironmentVariable("StorageConnectionString");
+
+            if (string.IsNullOrEmpty(connectionString) || string.IsNullOrEmpty(storageConnectionString))
             {
                 var error = req.CreateResponse(HttpStatusCode.InternalServerError);
-                await error.WriteStringAsync("Cosmos DB connection string not configured.");
+                await error.WriteStringAsync("Connection strings not configured.");
                 return error;
             }
 
@@ -38,8 +43,13 @@ namespace DocumentClassification
                     _cosmosClient = new CosmosClient(connectionString);
                 }
 
+                if (_blobServiceClient == null)
+                {
+                    _blobServiceClient = new BlobServiceClient(storageConnectionString);
+                }
+
                 var container = _cosmosClient.GetContainer("DocumentMetadata", "Documents");
-                var query = new QueryDefinition("SELECT c.fileName, c.documentId, c.timestamp, c.blobUrl FROM c");
+                var query = new QueryDefinition("SELECT c.fileName, c.documentId, c.timestamp, c.blobUrl, c.documentType FROM c");
                 
                 var documents = new List<DocumentSummary>();
                 using var iterator = container.GetItemQueryIterator<DocumentSummary>(query);
@@ -76,6 +86,9 @@ namespace DocumentClassification
 
             [JsonPropertyName("blobUrl")]
             public string BlobUrl { get; set; } = string.Empty;
+
+            [JsonPropertyName("documentType")]
+            public string DocumentType { get; set; } = "Unknown";
         }
     }
 }

@@ -51,7 +51,7 @@ namespace DocumentClassification
                 BlobContainerClient containerClient = blobServiceClient.GetBlobContainerClient(containerName);
                 await containerClient.CreateIfNotExistsAsync();
 
-                BlobClient blobClient = containerClient.GetBlobClient(filename);
+                var blobClient = containerClient.GetBlobClient(filename);
 
                 await blobClient.UploadAsync(req.Body, true);
 

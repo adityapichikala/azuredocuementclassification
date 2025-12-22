@@ -31,6 +31,12 @@ const Layout = ({ children, activeTab, onTabChange }) => {
 
                 <nav className="flex-1 px-4 space-y-2">
                     <SidebarItem
+                        icon={LayoutDashboard}
+                        label="Dashboard"
+                        active={activeTab === 'dashboard'}
+                        onClick={() => onTabChange('dashboard')}
+                    />
+                    <SidebarItem
                         icon={MessageSquare}
                         label="Chat"
                         active={activeTab === 'chat'}
