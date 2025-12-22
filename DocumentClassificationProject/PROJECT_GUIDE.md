@@ -403,7 +403,7 @@ namespace DocumentClassification.Services
 
         public async Task<string> GenerateContentAsync(string prompt)
         {
-            var url = $"https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key={_apiKey}";
+            var url = $"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={_apiKey}";
             
             var requestBody = new
             {
@@ -541,6 +541,7 @@ npm run dev
    a. AnalyzeDocument:
       - **Invoice Extraction**: Uses Azure `prebuilt-invoice` model to extract key fields (Vendor, Date, Total).
       - **Strict Scope**: Only processes invoices. Non-invoice documents are marked as "Unknown".
+      - **Dashboard Integration**: Invoices are categorized under the "Invoices" KPI, while all other documents go to "Others".
    b. IndexDocument → Generate vectors & Store in AI Search
    c. StoreMetadata → Save to Cosmos DB
 ```
