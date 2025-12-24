@@ -1,57 +1,189 @@
 # Azure Document Classification & Chat System
 
-A serverless document processing and RAG (Retrieval-Augmented Generation) system built with Azure Durable Functions, Document Intelligence, Azure AI Search, Cosmos DB, and Google Gemini AI.
+**An AI-powered invoice processing system using Azure Document Intelligence, with optional RAG-based conversational insights**
 
-## � Features
+This project is an **AI-driven invoice processing and analysis system** that automates
+invoice ingestion, data extraction, classification, and querying.
 
-- **📄 Document Processing**: Automatic extraction of text from PDFs and other documents using Azure Document Intelligence
-- **🔍 Vector Search**: Semantic search capabilities powered by Azure AI Search with vector embeddings
-- **💬 AI Chat Interface**: Interactive chat with your documents using Google Gemini API
-- **📊 Metadata Storage**: Document metadata stored in Azure Cosmos DB
-- **📈 Dashboard KPIs**: Real-time tracking of "Total Documents", "Invoices", and "Others"
-- **🎯 Selective Chat**: Filter conversations by specific uploaded documents
-- **🚀 Serverless Architecture**: Scalable Azure Durable Functions orchestration
-- **⚡ Real-time Frontend**: Modern React application with Vite
-- **🖼️ Image Support**: Upload and classify invoices from photos (JPEG, PNG, etc.)
+At its core, the system uses **Azure Document Intelligence (Prebuilt Invoice Model)** to
+extract structured invoice data.  
+On top of this structured data, an optional **RAG-based conversational layer**
+allows users to ask natural-language questions across invoices.
+
+---
+
+## ❓ The Problem & Solution
+
+### The Problem
+Organizations are drowning in documents.
+- **Manual Entry**: Extracting data from invoices (Vendor, Date, Total) is tedious and error-prone.
+- **Hard to Find**: Traditional search requires exact keywords. If you search for "Computer Repair", you won't find an invoice that only says "Laptop Service".
+- **No Insights**: A folder full of PDFs is a "black box". You can't easily query it for insights like "How much did we spend on software this year?".
+
+### The Solution
+We automate invoice understanding in three layers:
+
+1. **Invoice Understanding (Core Layer)**
+   - Detect invoices automatically
+   - Extract structured fields (Vendor, Date, Total, Line Items)
+   - Classify documents as "Invoice" using AI confidence
+
+2. **Data Storage & Analytics (Operational Layer)**
+   - Store extracted invoice metadata in Cosmos DB
+   - Enable fast filtering, reporting, and dashboards
+
+3. **Conversational Insights (Advanced Layer – RAG)**
+   - Convert invoice text into embeddings
+   - Enable semantic search and chat-based querying
+
+
+### 💡 Real-World Example
+**Scenario**: You upload a PDF invoice from "Acme Corp" for "10x Widgets" costing "$500".
+1.  **System Action**: It extracts `Vendor: Acme Corp`, `Total: $500`. It also indexes the text.
+2.  **User Query**: "How much did we pay for the widgets?"
+3.  **System Response**: "You paid **$500** for widgets to Acme Corp." (It found the answer even though you didn't ask for the specific invoice number).
+
+---
+
+## 🌟 Features
+
+- **📂 Auto-Classification**: Automatically categorizes uploaded files (e.g., "Contract", "Invoice", "Resume") using a custom-trained Azure Document Intelligence model.
+- **📄 Universal Text Extraction**: Uses the `prebuilt-layout` model to extract high-quality text and tables from *any* document type for the AI chat.
+- **💬 AI Chat Interface**: Interactive chat with your documents using Google Gemini AI (RAG pattern).
+- **🔍 Vector Search**: Semantic search powered by Azure AI Search embeddings.
+- **📊 Metadata Storage**: Classifications and metadata stored in Azure Cosmos DB for filtering and organization.
+- **🚀 Serverless Architecture**: Scalable Azure Durable Functions orchestration.
+
+---
 
 ## 🏗️ Architecture
 
-This solution implements a complete RAG (Retrieval-Augmented Generation) pipeline:
+### Primary Architecture – Invoice Intelligence Pipeline
 
-1. **Document Upload** → HTTP endpoint or Service Bus trigger
-2. **Document Analysis** → Azure Document Intelligence extracts content
-3. **Metadata Storage** → Cosmos DB stores document information
-4. **Embedding Generation** → Google Gemini API creates vector embeddings
-5. **Vector Indexing** → Azure AI Search indexes documents with embeddings
-6. **Chat Interface** → Users query documents via natural language
-7. **Semantic Search** → AI Search retrieves relevant document chunks
-8. **AI Response** → Gemini generates contextual answers
+1. Invoice uploaded to Blob Storage
+2. Azure Data Factory / Blob Trigger initiates processing
+3. Azure Document Intelligence (Prebuilt Invoice Model)
+4. Extracted invoice metadata stored in Cosmos DB
 
-```mermaid
+### Optional RAG Extension
+
+5. Text chunks converted to embeddings
+6. Indexed in Azure AI Search
+7. Gemini generates contextual responses
+
+This solution implements a "Classify-Then-Extract" pipeline:
+
+1.  **Ingestion** → User uploads file to `documents` container.
+2.  **Orchestration** → `BlobTrigger` starts the Durable Function.
+3.  **Analysis (Dual-Pass)**:
+    * **Step 1:** The **Classifier Model** identifies the document type (e.g., "Contract").
+    * **Step 2:** The **Layout Model** extracts all text and structure for the Chat AI.
+4.  **Embedding** → Google Gemini API creates vector embeddings of the text.
+5.  **Indexing** → Azure AI Search stores the vector and the "Document Type" tag.
+6.  **Chat** → Users query documents; the system filters by category and answers using Gemini.
+
 graph TD
-    A[User Uploads Document] --> B[Azure Blob Storage]
+    A[User Uploads Invoice] --> B[Azure Blob Storage]
     B --> C[Blob Trigger Function]
-    C --> D[Document Orchestrator]
+    C --> D[Document Orchestrator (Durable)]
+    
     D --> E[Analyze Document Activity]
-    E --> F[Document Intelligence]
+    E --> F[Azure Document Intelligence (Prebuilt Invoice Model)]
     F --> D
+    
     D --> G[Store Metadata Activity]
-    G --> H[Cosmos DB]
+    G --> H[Azure Cosmos DB]
     H --> D
+    
     D --> I[Create Embeddings Activity]
-    I --> J[Gemini API]
+    I --> J[Gemini API (Text Embeddings)]
     J --> D
+    
     D --> K[Index Document Activity]
     K --> L[Azure AI Search]
     L --> D
+    
     M[User Query] --> N[Chat Function]
     N --> O[Generate Query Embedding]
     O --> L
     L --> P[Retrieve Relevant Docs]
     P --> N
-    N --> Q[Gemini API - Generate Answer]
+    N --> Q[Gemini API (Generate Answer)]
     Q --> R[Return Response]
-```
+
+
+## ☁️ Azure Services Explained
+
+We use a specific set of Azure services, each chosen for a distinct purpose:
+
+### 1. Azure Functions (The "Workers")
+-   **What it is**: Serverless compute service. You run code without managing servers.
+-   **Usage**: It hosts our backend logic. We use **Durable Functions** to define a workflow (Analysis -> Embedding -> Indexing) that is resilient. If one step fails, we can retry it without restarting the whole process.
+
+### 2. Azure Blob Storage (The "Hard Drive")
+-   **What it is**: Massively scalable object storage for files.
+-   **Usage**: This is where the raw PDF and Image files are physically stored. We use a container named `documents`.
+
+### 3. Azure Document Intelligence (The "Eyes")
+-   **What it is**: AI service that applies machine learning to extract text, key-value pairs, and tables from documents.
+-   **Usage**: We use the **Prebuilt Invoice Model**. It "looks" at the document and identifies: *"This text is the Vendor Name"*, *"This text is the Total Amount"*. It handles the OCR (Optical Character Recognition).
+
+### 4. Azure Cosmos DB (The "Filing Cabinet")
+-   **What it is**: A fast, NoSQL database.
+-   **Usage**: We store the **Metadata** here. While the file is in Blob Storage, the *information about the file* (ID, Name, Upload Date, Extracted Fields) lives here as a JSON document. This allows the frontend to quickly list all files without scanning the heavy blobs.
+
+### 5. Azure AI Search (The "Brain")
+-   **What it is**: A search-as-a-service solution with vector search capabilities.
+-   **Usage**: This is our search engine. It stores the **Vector Embeddings**. When you ask a question, it performs a "Vector Search" (Nearest Neighbor search) to find the most relevant document segments, even if the words don't match exactly.
+
+---
+
+## 🤖 Document Intelligence & Machine Learning
+
+### Why Prebuilt Invoice Model?
+- Eliminates manual training effort
+- Trained on millions of real-world invoices
+- High accuracy across layouts
+- Ideal for enterprise invoice automation
+
+### How the Model Works
+We utilize the **Azure Document Intelligence Prebuilt Invoice Model**.
+-   **Training**: This model was pre-trained by Microsoft on **millions of invoices** from various regions and industries. It has learned to recognize common invoice layouts, terminology (e.g., "Total", "Amount Due", "Balance"), and structures.
+-   **You do NOT need to train it**: It works out-of-the-box.
+-   **Classification**:
+    -   The system sends the document to the model.
+    -   The model attempts to map the content to its known schema (Vendor, Customer, Total, etc.).
+    -   **Confidence Score**: The model returns a confidence score (0-1).
+    -   **Our Logic**: If the model successfully extracts valid invoice fields (like `InvoiceTotal`), our code classifies the document type as **"invoice"**. If it fails to find these fields, we mark it as **"Unknown"**.
+
+### Vector Embeddings (The "Semantic" Layer)
+-   We use **Google Gemini (`text-embedding-004`)** to turn text into numbers.
+-   **Example**: The words "Dog" and "Puppy" are different words but have similar meanings. In the vector space, their numbers will be very close together. This allows the chat to understand context.
+
+---
+
+## ⚙️ Azure Account Setup & Configuration
+
+To replicate this environment, you need an Azure Subscription. Here is how the account is structured:
+
+### 1. Resource Group
+-   **Name**: `rg-doc-classification` (example)
+-   **Purpose**: A logical container that holds all related resources. If you delete this group, you delete everything (clean up is easy).
+
+### 2. Service Configuration
+Each service is connected via **Connection Strings** or **Keys** stored in the Function App's settings (`local.settings.json` for local, Environment Variables for cloud).
+
+| Service | Key Setting | Description |
+| :--- | :--- | :--- |
+| **Storage Account** | `AzureWebJobsStorage` | Used by Azure Functions to manage its own state. |
+| **Cosmos DB** | `CosmosDBConnectionString` | Allows the code to write metadata JSONs. |
+| **Doc Intelligence** | `DocumentIntelligenceEndpoint` | The URL where we send files for analysis. |
+| **Doc Intelligence** | `DocumentIntelligenceKey` | The password to access the AI service. |
+| **AI Search** | `SearchServiceEndpoint` | The URL of our search index. |
+| **AI Search** | `SearchServiceAdminKey` | Admin key to allow creating/updating indexes. |
+| **Google Gemini** | `GeminiApiKey` | Key to generate embeddings and chat responses. |
+
+---
 
 ## 📁 Project Structure
 
@@ -59,34 +191,41 @@ graph TD
 DocumentClassificationProject/
 ├── AzureFunctions/
 │   └── DocumentClassification/
-│       ├── Models/                          # Data models
-│       │   ├── DocumentInfo.cs
-│       │   ├── EmbeddedDocument.cs
-│       │   └── DocumentMetadata.cs
-│       ├── Services/                        # Service layer
-│       │   └── GeminiService.cs            # Gemini API integration
-│       ├── BlobTriggerFunction.cs          # Blob upload trigger
-│       ├── DocumentOrchestrator.cs         # Main orchestration
-│       ├── AnalyzeDocumentActivity.cs      # Document Intelligence
-│       ├── StoreMetadataActivity.cs        # Cosmos DB storage
-│       ├── CreateEmbeddingsActivity.cs     # Embedding generation
-│       ├── IndexDocumentActivity.cs        # AI Search indexing
-│       ├── ChatFunction.cs                 # RAG chat endpoint
-│       ├── GetDocumentsFunction.cs         # List uploaded documents
-│       ├── Program.cs                      # Host configuration
-│       ├── host.json                       # Functions configuration
-│       └── local.settings.json             # Local settings
-├── frontend/                                # React application
+│       ├── AnalyzeDocumentActivity.cs      # Core logic: Classifies type & extracts text for RAG
+│       ├── BlobTriggerFunction.cs          # Detects new uploads in Blob Storage
+│       ├── ChatFunction.cs                 # RAG endpoint: Semantic search + Gemini answer
+│       ├── DeleteDocumentFunction.cs       # Removes docs from Storage, Cosmos, and Search
+│       ├── DocumentOrchestrator.cs         # Durable Function: Manages the processing workflow
+│       ├── GetDocumentsFunction.cs         # API to fetch classified metadata from Cosmos DB
+│       ├── IndexDocumentActivity.cs        # Generates embeddings and updates AI Search index
+│       ├── ReindexFunction.cs              # Utility to refresh the search index
+│       ├── StoreMetadataActivity.cs        # Saves classification and text to Cosmos DB
+│       ├── TrainClassifierFunction.cs      # API to train your custom classification model
+│       ├── UploadFunction.cs               # Direct API upload endpoint
+│       ├── Program.cs                      # Dependency injection and host setup
+│       ├── host.json                       # Azure Functions runtime configuration
+│       ├── local.settings.json             # App settings (Keys, Endpoints, Model IDs)
+│       ├── Models/                         # Data transfer objects
+│       │   ├── DocumentInfo.cs             # Trigger input model
+│       │   ├── DocumentMetadata.cs         # Cosmos DB schema
+│       │   └── EmbeddedDocument.cs         # Search index schema
+│       └── Services/
+│           └── GeminiService.cs            # Google Gemini API integration (Embeddings/Chat)
+├── frontend/                                # React + Vite Frontend
 │   ├── src/
-│   │   ├── App.jsx                         # Main app component
-│   │   ├── ChatInterface.jsx               # Chat UI
-│   │   ├── DocumentUpload.jsx              # Upload component
-│   │   └── FileSelector.jsx                # Document selector
-│   ├── package.json
-│   └── vite.config.js
+│   │   ├── components/
+│   │   │   ├── ui/                         # Reusable UI components (Button, Card)
+│   │   │   ├── Layout.jsx                  # Main application wrapper
+│   │   │   └── PdfViewer.jsx               # Document preview component
+│   │   ├── App.jsx                         # Main dashboard logic
+│   │   ├── ChatInterface.jsx               # RAG chat UI
+│   │   ├── FileUpload.jsx                  # Document ingestion component
+│   │   └── main.jsx                        # React entry point
+│   ├── tailwind.config.js                  # Styling configuration
+│   └── package.json                        # Frontend dependencies
 ├── Scripts/
-│   └── setup-azure-resources.sh            # Azure resource setup
-└── README.md
+│   └── setup-azure-resources.sh            # CLI script to deploy all Azure infra
+└── README.md                               # Project documentation and setup guide
 ```
 
 ## 🚀 Prerequisites
@@ -241,19 +380,15 @@ Open your browser to `http://localhost:5173`
 
 ## 📊 Using the Application
 
-### Upload Documents
+### Invoice Processing
+1. Upload invoice (PDF/Image)
+2. System extracts structured invoice data
+3. Metadata stored and available instantly
 
-1. Use the frontend Upload section
-2. Select a PDF or document file
-3. Click Upload
-4. Wait for processing to complete (check Azure Functions logs)
+### Conversational Queries (Optional)
+- Ask invoice-related questions
+- Perform semantic spend analysis
 
-### Chat with Documents
-
-1. Type your question in the chat interface
-2. Optionally select specific documents to search
-3. Click Send
-4. The AI will answer based on your uploaded documents
 
 ### Example Queries
 
@@ -391,6 +526,15 @@ dotnet build
 - [ ] Add export chat history
 - [ ] Implement streaming responses
 - [ ] Add multi-language support
+
+## 🎯 Project Focus Summary
+
+| Layer | Purpose |
+|------|--------|
+| Document Intelligence | Core invoice understanding |
+| Cosmos DB | Structured invoice storage |
+| RAG (Search + Gemini) | Advanced analytics & chat |
+
 
 ## 🤝 Contributing
 
