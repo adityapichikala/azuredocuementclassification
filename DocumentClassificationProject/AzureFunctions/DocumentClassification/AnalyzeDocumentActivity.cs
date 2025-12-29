@@ -19,111 +19,52 @@ public class AnalyzeDocumentActivity
     [Function(nameof(AnalyzeDocumentActivity))]
     public async Task<DocumentMetadata> Run([ActivityTrigger] DocumentInfo documentInfo)
     {
-        _logger.LogInformation($"📄 Analyzing document: {documentInfo.FileName}");
+        _logger.LogInformation($"📄 Processing document: {documentInfo.FileName}");
 
         try 
         {
             string content = "";
-            int pageCount = 1;
-            string documentType = "Unknown"; // Default
-            bool azureClassificationSuccess = false;
+            int pageCount = 0;
+            string documentType = "Unknown";
+            
+            var endpoint = Environment.GetEnvironmentVariable("DocumentIntelligenceEndpoint");
+            var key = Environment.GetEnvironmentVariable("DocumentIntelligenceKey");
+            var classifierId = Environment.GetEnvironmentVariable("ClassifierModelId");
 
-            if (documentInfo.FileName.EndsWith(".txt", StringComparison.OrdinalIgnoreCase))
+            if (string.IsNullOrEmpty(endpoint) || string.IsNullOrEmpty(key))
+                throw new InvalidOperationException("Configuration missing.");
+
+            var credential = new AzureKeyCredential(key);
+            var client = new DocumentAnalysisClient(new Uri(endpoint), credential);
+
+            // Generate SAS for API access
+            Uri fileUri = await GenerateBlobSasUri(documentInfo.BlobUrl);
+
+            // 1. CLASSIFY
+            if (!string.IsNullOrEmpty(classifierId))
             {
-                // Handle text files directly
-                _logger.LogInformation("📝 Detected text file, downloading content directly...");
-                var storageConnectionString = Environment.GetEnvironmentVariable("StorageConnectionString");
-                if (string.IsNullOrEmpty(storageConnectionString)) throw new InvalidOperationException("StorageConnectionString not configured");
-
-                var blobUri = new Uri(documentInfo.BlobUrl);
-                var containerName = blobUri.Segments[1].TrimEnd('/');
-                var blobName = string.Join("", blobUri.Segments.Skip(2));
-
-                var blobServiceClient = new BlobServiceClient(storageConnectionString);
-                var containerClient = blobServiceClient.GetBlobContainerClient(containerName);
-                var blobClient = containerClient.GetBlobClient(blobName);
-
-                var downloadResult = await blobClient.DownloadContentAsync();
-                content = downloadResult.Value.Content.ToString();
-            }
-            else
-            {
-                // Use Document Intelligence for other formats
-                var endpoint = Environment.GetEnvironmentVariable("DocumentIntelligenceEndpoint");
-                var key = Environment.GetEnvironmentVariable("DocumentIntelligenceKey");
-                var storageConnectionString = Environment.GetEnvironmentVariable("StorageConnectionString");
-
-                if (string.IsNullOrEmpty(endpoint) || string.IsNullOrEmpty(key) || string.IsNullOrEmpty(storageConnectionString))
+                try 
                 {
-                    throw new InvalidOperationException("Configuration missing (Endpoint, Key, or StorageConnection)");
-                }
-
-                var credential = new AzureKeyCredential(key);
-                var client = new DocumentAnalysisClient(new Uri(endpoint), credential);
-
-                // Download blob content to stream
-                var blobUri = new Uri(documentInfo.BlobUrl);
-                var containerName = blobUri.Segments[1].TrimEnd('/');
-                var blobName = string.Join("", blobUri.Segments.Skip(2));
-                
-                var blobServiceClient = new BlobServiceClient(storageConnectionString);
-                var containerClient = blobServiceClient.GetBlobContainerClient(containerName);
-                var blobClient = containerClient.GetBlobClient(blobName);
-
-                using var blobStream = await blobClient.OpenReadAsync();
-
-                // 1. Extract Content using Prebuilt Invoice Model
-                _logger.LogInformation("🧾 Using Azure Prebuilt Invoice model...");
-                var operation = await client.AnalyzeDocumentAsync(WaitUntil.Completed, "prebuilt-invoice", blobStream);
-                var result = operation.Value;
-                
-                content = result.Content;
-                pageCount = result.Pages.Count;
-
-                // Extract structured invoice data
-                var invoiceData = new System.Text.StringBuilder();
-                invoiceData.AppendLine("\n\n--- 🧾 EXTRACTED INVOICE DATA ---");
-                
-                foreach (var document in result.Documents)
-                {
-                    documentType = "invoice"; // Force type to invoice
-                    azureClassificationSuccess = true; // Mark as classified
-
-                    if (document.Fields.TryGetValue("VendorName", out var vendorName) && vendorName.Value.AsString() != null)
-                        invoiceData.AppendLine($"Vendor: {vendorName.Value.AsString()}");
-                    
-                    if (document.Fields.TryGetValue("CustomerName", out var customerName) && customerName.Value.AsString() != null)
-                        invoiceData.AppendLine($"Customer: {customerName.Value.AsString()}");
-
-                    if (document.Fields.TryGetValue("InvoiceId", out var invoiceId) && invoiceId.Value.AsString() != null)
-                        invoiceData.AppendLine($"Invoice ID: {invoiceId.Value.AsString()}");
-
-                    if (document.Fields.TryGetValue("InvoiceDate", out var invoiceDate))
-                        invoiceData.AppendLine($"Date: {invoiceDate.Value.AsDate():yyyy-MM-dd}");
-
-                    if (document.Fields.TryGetValue("InvoiceTotal", out var invoiceTotal))
+                    _logger.LogInformation($"🕵️ Classifying with {classifierId}...");
+                    var op = await client.AnalyzeDocumentFromUriAsync(WaitUntil.Completed, classifierId, fileUri);
+                    if (op.Value.Documents.Count > 0)
                     {
-                        var currency = invoiceTotal.Value.AsCurrency();
-                        invoiceData.AppendLine($"Total: {currency.Amount} {currency.Symbol}");
+                        documentType = op.Value.Documents[0].DocumentType;
+                        _logger.LogInformation($"✅ Classified as: {documentType}");
                     }
                 }
-                
-                // Append structured data to content for LLM context
-                content += invoiceData.ToString();
+                catch (Exception ex)
+                {
+                    _logger.LogWarning($"Classification failed: {ex.Message}");
+                }
             }
 
-            // --- INVOICE ONLY SCOPE ---
-            // We rely on the prebuilt-invoice model. 
-            // If extraction succeeded, documentType is already set to 'invoice'.
-            // If not, it remains 'Unknown'.
-            
-            if (documentType == "Unknown")
-            {
-                _logger.LogWarning("⚠️ Document could not be classified as an invoice.");
-            }
-
-            var preview = content?.Length > 200 ? content.Substring(0, 200) + "..." : content ?? "";
-            _logger.LogInformation($"✅ Analysis complete. Pages: {pageCount}, Type: {documentType}, Content Length: {content?.Length ?? 0}");
+            // 2. EXTRACT (RAG)
+            // Using 'prebuilt-layout' to get text from ANY document type
+            _logger.LogInformation("📖 Extracting text...");
+            var extractOp = await client.AnalyzeDocumentFromUriAsync(WaitUntil.Completed, "prebuilt-layout", fileUri);
+            content = extractOp.Value.Content;
+            pageCount = extractOp.Value.Pages.Count;
 
             return new DocumentMetadata
             {
@@ -140,7 +81,7 @@ public class AnalyzeDocumentActivity
         }
         catch (Exception ex)
         {
-            _logger.LogError($"❌ Error analyzing document: {ex.Message}");
+            _logger.LogError($"❌ Error: {ex.Message}");
             throw;
         }
     }
@@ -150,49 +91,27 @@ public class AnalyzeDocumentActivity
         try
         {
             var blobUri = new Uri(blobUrl);
-            
-            // Extract container and blob name from URL
-            var segments = blobUri.Segments;
-            if (segments.Length < 3)
-            {
-                return blobUri;
-            }
-            
-            var containerName = segments[1].TrimEnd('/');
-            var blobName = string.Join("", segments.Skip(2));
-            
-            var storageConnectionString = Environment.GetEnvironmentVariable("StorageConnectionString");
-            
-            if (string.IsNullOrEmpty(storageConnectionString))
-            {
-                return blobUri;
-            }
-            
-            var blobServiceClient = new BlobServiceClient(storageConnectionString);
+            var storageConnection = Environment.GetEnvironmentVariable("StorageConnectionString");
+            if (string.IsNullOrEmpty(storageConnection)) return blobUri;
+
+            var blobServiceClient = new BlobServiceClient(storageConnection);
+            var containerName = blobUri.Segments[1].TrimEnd('/');
+            var blobName = string.Join("", blobUri.Segments.Skip(2));
             var containerClient = blobServiceClient.GetBlobContainerClient(containerName);
             var blobClient = containerClient.GetBlobClient(blobName);
             
             if (blobClient.CanGenerateSasUri)
             {
-                var sasBuilder = new BlobSasBuilder
+                var sas = new BlobSasBuilder(BlobSasPermissions.Read, DateTimeOffset.UtcNow.AddHours(1))
                 {
                     BlobContainerName = containerName,
                     BlobName = blobName,
-                    Resource = "b",
-                    StartsOn = DateTimeOffset.UtcNow.AddMinutes(-5),
-                    ExpiresOn = DateTimeOffset.UtcNow.AddHours(1)
+                    Resource = "b"
                 };
-                sasBuilder.SetPermissions(BlobSasPermissions.Read);
-                
-                return blobClient.GenerateSasUri(sasBuilder);
+                return blobClient.GenerateSasUri(sas);
             }
-            
             return blobUri;
         }
-        catch (Exception ex)
-        {
-            _logger.LogWarning($"⚠️ Failed to generate SAS token: {ex.Message}. Using original URL.");
-            return new Uri(blobUrl);
-        }
+        catch { return new Uri(blobUrl); }
     }
 }

@@ -5,13 +5,15 @@ import FileUpload from './FileUpload';
 import ChatInterface from './ChatInterface';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './components/ui/Card';
 import { Button } from './components/ui/Button';
-import { FileText, Check, MessageSquare, PieChart, BarChart, Trash2 } from 'lucide-react';
+import { FileText, Check, MessageSquare, PieChart, BarChart, Trash2, Loader2 } from 'lucide-react';
 import { cn } from './lib/utils';
 
 function App() {
   const [activeTab, setActiveTab] = useState('documents');
   const [documents, setDocuments] = useState([]);
   const [selectedDocuments, setSelectedDocuments] = useState([]);
+  const [processingDocument, setProcessingDocument] = useState(null);
+  const [processingStatus, setProcessingStatus] = useState('');
   const chatRef = useRef(null);
 
   const fetchDocuments = async () => {
@@ -29,22 +31,71 @@ function App() {
 
   const handleUploadSuccess = async (filename) => {
     console.log(`File uploaded: ${filename}`);
-    await fetchDocuments();
 
-    // Auto-select the uploaded document
-    if (!selectedDocuments.includes(filename)) {
-      setSelectedDocuments(prev => [...prev, filename]);
-    }
+    // Set processing state
+    setProcessingDocument(filename);
+    setProcessingStatus('Processing document...');
 
-    // Switch to chat and trigger summary
-    setActiveTab('chat');
+    // Poll for document readiness
+    const maxAttempts = 15; // 15 attempts * 2 seconds = 30 seconds max
+    let attempts = 0;
+    let documentReady = false;
 
-    // Small delay to ensure ref is ready and tab is switched
-    setTimeout(() => {
-      if (chatRef.current) {
-        chatRef.current.sendMessage(`Please provide a 3-bullet summary of the document "${filename}".`);
+    const pollInterval = setInterval(async () => {
+      attempts++;
+
+      try {
+        const response = await axios.get('http://localhost:7071/api/GetDocuments');
+        const docs = response.data;
+
+        // Check if our document is in the list
+        const uploadedDoc = docs.find(d => d.fileName === filename);
+
+        if (uploadedDoc) {
+          // Document found! Clear polling
+          clearInterval(pollInterval);
+          documentReady = true;
+
+          // Update UI
+          setProcessingStatus('Document ready!');
+          await fetchDocuments();
+
+          // Auto-select the document
+          if (!selectedDocuments.includes(filename)) {
+            setSelectedDocuments(prev => [...prev, filename]);
+          }
+
+          // Small delay to show "ready" status
+          setTimeout(() => {
+            setProcessingDocument(null);
+            setActiveTab('chat');
+
+            // Send summary request
+            setTimeout(() => {
+              if (chatRef.current) {
+                chatRef.current.sendMessage(`Please provide a 3-bullet summary of the document "${filename}".`);
+              }
+            }, 500);
+          }, 1000);
+        } else {
+          // Still processing
+          setProcessingStatus(`Processing document... (${attempts}/${maxAttempts})`);
+        }
+
+        // Timeout check
+        if (attempts >= maxAttempts && !documentReady) {
+          clearInterval(pollInterval);
+          setProcessingStatus('Processing timeout. Please check the backend logs.');
+
+          // Reset after showing error
+          setTimeout(() => {
+            setProcessingDocument(null);
+          }, 5000);
+        }
+      } catch (error) {
+        console.error('Error polling for document:', error);
       }
-    }, 500);
+    }, 2000); // Poll every 2 seconds
   };
 
   const toggleDocumentSelection = (fileName) => {
@@ -301,6 +352,23 @@ function App() {
   return (
     <Layout activeTab={activeTab} onTabChange={setActiveTab}>
       {renderContent()}
+
+      {processingDocument && (
+        <div className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center">
+          <div className="bg-card p-8 rounded-lg shadow-lg border max-w-md w-full mx-4">
+            <div className="flex flex-col items-center space-y-4">
+              <Loader2 className="h-12 w-12 animate-spin text-primary" />
+              <h3 className="text-lg font-semibold">Processing Document</h3>
+              <p className="text-sm text-muted-foreground text-center">
+                {processingStatus}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Uploading → Classifying → Indexing
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
     </Layout>
   );
 }

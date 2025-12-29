@@ -24,17 +24,13 @@ namespace DocumentClassification
         {
             _logger.LogInformation("Starting model training request.");
 
-            // 1. Parse Request
             string requestBody = await new StreamReader(req.Body).ReadToEndAsync();
             TrainRequest? data = null;
             try
             {
                 data = JsonSerializer.Deserialize<TrainRequest>(requestBody, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
             }
-            catch
-            {
-                // Ignore
-            }
+            catch { }
 
             if (data == null)
             {
@@ -46,7 +42,6 @@ namespace DocumentClassification
             string modelId = data.ModelId ?? $"classifier-{DateTime.UtcNow:yyyyMMdd-HHmmss}";
             string containerName = data.ContainerName ?? "training-data";
 
-            // 2. Get Configuration
             var endpoint = Environment.GetEnvironmentVariable("DocumentIntelligenceEndpoint");
             var key = Environment.GetEnvironmentVariable("DocumentIntelligenceKey");
             var storageConnection = Environment.GetEnvironmentVariable("StorageConnectionString");
@@ -54,18 +49,16 @@ namespace DocumentClassification
             if (string.IsNullOrEmpty(endpoint) || string.IsNullOrEmpty(key) || string.IsNullOrEmpty(storageConnection))
             {
                 var error = req.CreateResponse(HttpStatusCode.InternalServerError);
-                await error.WriteStringAsync("Missing configuration (Endpoint, Key, or Storage).");
+                await error.WriteStringAsync("Missing configuration.");
                 return error;
             }
 
             try
             {
-                // 3. Generate SAS URI for the training container
-                // var sasUri = await GenerateContainerSasUri(storageConnection, containerName);
-                // _logger.LogInformation($"Generated SAS URI: {sasUri}");
-                
-                // 4. Train Model
-                // 4. Train Model
+                // 1. DYNAMIC SAS GENERATION (Fixed)
+                var sasUri = await GenerateContainerSasUri(storageConnection, containerName);
+                _logger.LogInformation($"Generated SAS URI for container: {containerName}");
+
                 var credential = new AzureKeyCredential(key);
                 var client = new DocumentModelAdministrationClient(new Uri(endpoint), credential);
 
@@ -81,57 +74,47 @@ namespace DocumentClassification
                     return notFound;
                 }
 
+                // 2. Scan folders
                 var docTypes = new Dictionary<string, ClassifierDocumentTypeDetails>();
-                
                 var folders = new HashSet<string>();
                 await foreach (var blob in containerClient.GetBlobsAsync())
                 {
                     var parts = blob.Name.Split('/');
-                    if (parts.Length > 1)
-                    {
-                        folders.Add(parts[0]);
-                    }
+                    if (parts.Length > 1) folders.Add(parts[0]);
                 }
 
                 if (folders.Count < 2)
                 {
                     var badData = req.CreateResponse(HttpStatusCode.BadRequest);
-                    await badData.WriteStringAsync($"Found {folders.Count} categories. Need at least 2 categories (folders) in '{containerName}' to train a classifier.");
+                    await badData.WriteStringAsync($"Found {folders.Count} categories. Need at least 2 categories (folders) in '{containerName}' to train.");
                     return badData;
                 }
 
-                // Hardcoded SAS for debugging
-                var sasToken = "?se=2025-12-22T00%3A00%3A00Z&sp=rl&sv=2022-11-02&sr=c&sig=9cy1vcE%2BLRrqjaaPTCtoWoVmle%2B3nsHk5qDdMbBBjmY%3D";
-                var sasUri = new Uri($"https://stdocclass1764130250.blob.core.windows.net/{containerName}{sasToken}");
-                _logger.LogInformation($"Using Hardcoded SAS URI: {sasUri}");
+                // Log the SAS URI (masked) for debugging
+                var sasLog = sasUri.ToString();
+                // var maskedSas = sasLog.Substring(0, sasLog.IndexOf("sig=")) + "sig=REDACTED"; 
+                _logger.LogInformation($"Using SAS URI: {sasLog}");
 
                 foreach (var folder in folders)
                 {
-                    var source = new BlobContentSource(sasUri)
-                    {
-                        Prefix = folder 
-                    };
-                    
+                    var prefix = folder + "/";
+                    var source = new BlobContentSource(sasUri) { Prefix = prefix }; 
                     docTypes.Add(folder, new ClassifierDocumentTypeDetails(source));
-                    _logger.LogInformation($"Added category: {folder}");
+                    _logger.LogInformation($"Added category: {folder} (Prefix: {prefix})");
                 }
 
-                // Start Training
+                // 3. Train
                 Operation<DocumentClassifierDetails> operation = await client.BuildDocumentClassifierAsync(WaitUntil.Completed, docTypes, modelId);
                 DocumentClassifierDetails classifier = operation.Value;
 
-                // 5. Return Success
                 var response = req.CreateResponse(HttpStatusCode.OK);
                 await response.WriteAsJsonAsync(new 
                 { 
                     message = "Training complete!",
                     modelId = classifier.ClassifierId,
-                    createdOn = classifier.CreatedOn,
-                    description = classifier.Description,
-                    docTypes = classifier.DocumentTypes
+                    docTypes = classifier.DocumentTypes.Keys
                 });
                 return response;
-
             }
             catch (Exception ex)
             {
@@ -152,15 +135,13 @@ namespace DocumentClassification
                 var sasBuilder = new BlobSasBuilder
                 {
                     BlobContainerName = containerName,
-                    Resource = "c", // c for container
+                    Resource = "c",
                     StartsOn = DateTimeOffset.UtcNow.AddMinutes(-5),
                     ExpiresOn = DateTimeOffset.UtcNow.AddHours(1)
                 };
                 sasBuilder.SetPermissions(BlobContainerSasPermissions.Read | BlobContainerSasPermissions.List);
-
                 return containerClient.GenerateSasUri(sasBuilder);
             }
-            
             throw new InvalidOperationException("Cannot generate SAS URI for this account.");
         }
 
